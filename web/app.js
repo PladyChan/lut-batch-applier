@@ -4,7 +4,7 @@ const state = {
   images: [],
   currentIndex: 0,
   lut: null,
-  watermarkStyle: "metadata",
+  watermarkStyle: "frame",
   renderToken: 0,
   fontLoadPromise: null
 };
@@ -411,10 +411,10 @@ function drawLumixFrame(ctx, width, height, asset, settings) {
     content.whiteBalance
   ].filter(Boolean).join("  ");
   const frameContent = {
-    camera: content.camera || "Camera",
+    camera: cleanWatermarkLine(settings.watermarkTitle) || content.camera || "LUMIX L10",
     lens: content.lens || "LENS",
     exposure: exposure || "F2.4  1/60s  ISO400 WB",
-    lutName: content.lutName || "LUT NAME"
+    lutName: cleanWatermarkLine(settings.watermarkSubtitle) || content.lutName || "Y2000-LX Plady"
   };
 
   ctx.canvas.width = layout.frameWidth;
