@@ -31,8 +31,6 @@ const els = {
   nextImage: $("nextImage"),
   lutIntensity: $("lutIntensity"),
   watermarkEnabled: $("watermarkEnabled"),
-  watermarkTitle: $("watermarkTitle"),
-  watermarkSubtitle: $("watermarkSubtitle"),
   fontSize: $("fontSize"),
   watermarkOpacity: $("watermarkOpacity"),
   photoThemeEnabled: $("photoThemeEnabled"),
@@ -64,8 +62,6 @@ function readSettings() {
   return {
     lutIntensity: Number(els.lutIntensity.value) / 100,
     watermarkEnabled: els.watermarkEnabled.checked,
-    watermarkTitle: els.watermarkTitle.value.trim() || "PLADY",
-    watermarkSubtitle: els.watermarkSubtitle.value.trim(),
     watermarkStyle: state.watermarkStyle,
     fontSize: Number(els.fontSize.value),
     watermarkOpacity: Number(els.watermarkOpacity.value) / 100,
@@ -384,10 +380,10 @@ function drawLumixFrame(ctx, width, height, asset, settings) {
     content.whiteBalance
   ].filter(Boolean).join("  ");
   const frameContent = {
-    camera: cleanWatermarkLine(settings.watermarkTitle) || content.camera || "LUMIX L10",
+    camera: content.camera || "Camera",
     lens: content.lens || "LENS",
     exposure: exposure || "F2.4  1/60s  ISO400 WB",
-    lutName: cleanWatermarkLine(settings.watermarkSubtitle) || content.lutName || "Y2000-LX Plady"
+    lutName: content.lutName || "LUT NAME"
   };
   const colors = settings.photoThemeEnabled
     ? photoDominantFrameTheme(asset) || { background: settings.frameColor || "#ffffff", text: settings.textColor || "#000000" }
@@ -984,8 +980,8 @@ function setup() {
   });
 
   [
-    els.lutIntensity, els.watermarkEnabled, els.watermarkTitle, els.watermarkSubtitle,
-    els.fontSize, els.watermarkOpacity, els.photoThemeEnabled, els.textColor, els.frameColor,
+    els.lutIntensity, els.watermarkEnabled, els.fontSize, els.watermarkOpacity,
+    els.photoThemeEnabled, els.textColor, els.frameColor,
     els.maxEdge, els.jpegQuality
   ].forEach((input) => {
     input.addEventListener("input", renderPreview);
