@@ -1,0 +1,19 @@
+.DS_Store
+node_modules/
+dist/
+build/
+
+# Apple / Xcode
+DerivedData/
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+native-macos/build*/
+native-macos/.build/
+
+# Android / Gradle
+.gradle/
+native-android/.gradle/
+native-android/**/build/
+
+# Local exports
+*.zip

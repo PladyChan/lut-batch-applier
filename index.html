@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plady LUT 批量套色与水印</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <aside class="panel sidebar" aria-label="导入与设置">
+          <div class="brand">
+            <div>
+              <p class="eyebrow">Plady Web</p>
+              <h1>LUT 批量套色与水印</h1>
+            </div>
+            <span class="status" id="privacyStatus">本地处理</span>
+          </div>
+
+          <div class="section">
+            <label class="dropzone" for="imageInput" id="imageDropzone">
+              <span class="dropzone-title">导入图片</span>
+              <span class="dropzone-copy">支持 JPG / PNG / WebP，可多选或拖入</span>
+              <input id="imageInput" type="file" accept="image/*" multiple>
+            </label>
+            <div class="file-meta" id="imageMeta">尚未导入图片</div>
+          </div>
+
+          <div class="section">
+            <label class="dropzone compact" for="lutInput" id="lutDropzone">
+              <span class="dropzone-title">导入 .cube LUT</span>
+              <span class="dropzone-copy">可选，不导入则只做基础调色和水印</span>
+              <input id="lutInput" type="file" accept=".cube,text/plain">
+            </label>
+            <div class="file-meta" id="lutMeta">未使用 LUT</div>
+          </div>
+
+          <div class="section">
+            <div class="section-head">
+              <h2>调色</h2>
+              <button class="icon-button" type="button" id="resetAdjustments" title="重置调色">↺</button>
+            </div>
+            <label class="control">
+              <span>强度 <output id="intensityValue">100%</output></span>
+              <input id="lutIntensity" type="range" min="0" max="100" value="100">
+            </label>
+            <label class="control">
+              <span>曝光 <output id="exposureValue">0</output></span>
+              <input id="exposure" type="range" min="-100" max="100" value="0">
+            </label>
+            <label class="control">
+              <span>对比 <output id="contrastValue">0</output></span>
+              <input id="contrast" type="range" min="-100" max="100" value="0">
+            </label>
+            <label class="control">
+              <span>饱和 <output id="saturationValue">0</output></span>
+              <input id="saturation" type="range" min="-100" max="100" value="0">
+            </label>
+          </div>
+
+          <div class="section">
+            <div class="section-head">
+              <h2>水印</h2>
+              <label class="switch">
+                <input id="watermarkEnabled" type="checkbox" checked>
+                <span></span>
+              </label>
+            </div>
+            <div class="segmented" role="group" aria-label="水印样式">
+              <button type="button" class="active" data-style="metadata">信息</button>
+              <button type="button" data-style="frame">画框</button>
+            </div>
+            <label class="control text-control">
+              <span>主标题</span>
+              <input id="watermarkTitle" type="text" value="PLADY">
+            </label>
+            <label class="control text-control">
+              <span>副标题</span>
+              <input id="watermarkSubtitle" type="text" value="LUT Batch Applier">
+            </label>
+            <label class="control">
+              <span>字号 <output id="fontSizeValue">30</output></span>
+              <input id="fontSize" type="range" min="16" max="80" value="30">
+            </label>
+            <label class="control">
+              <span>透明度 <output id="opacityValue">85%</output></span>
+              <input id="watermarkOpacity" type="range" min="10" max="100" value="85">
+            </label>
+            <div class="color-row">
+              <label>
+                <span>文字</span>
+                <input id="textColor" type="color" value="#ffffff">
+              </label>
+              <label>
+                <span>背景</span>
+                <input id="frameColor" type="color" value="#111111">
+              </label>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>导出</h2>
+            <label class="control">
+              <span>长边限制 <output id="maxEdgeValue">2400px</output></span>
+              <input id="maxEdge" type="range" min="800" max="6000" step="100" value="2400">
+            </label>
+            <label class="control">
+              <span>JPEG 质量 <output id="qualityValue">92%</output></span>
+              <input id="jpegQuality" type="range" min="60" max="100" value="92">
+            </label>
+            <button class="primary" type="button" id="exportButton" disabled>导出 ZIP</button>
+          </div>
+        </aside>
+
+        <section class="stage" aria-label="预览">
+          <div class="toolbar">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h2 id="previewTitle">等待导入图片</h2>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" id="prevImage" title="上一张">‹</button>
+              <span id="imageCounter">0 / 0</span>
+              <button type="button" id="nextImage" title="下一张">›</button>
+            </div>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="previewCanvas" width="1200" height="800"></canvas>
+            <div class="empty-state" id="emptyState">
+              <strong>拖入图片开始处理</strong>
+              <span>所有计算都在浏览器本地完成</span>
+            </div>
+          </div>
+          <div class="queue" id="imageQueue"></div>
+          <div class="log" id="log" role="status" aria-live="polite">准备就绪</div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
