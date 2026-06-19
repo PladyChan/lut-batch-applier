@@ -73,6 +73,14 @@ function readSettings() {
   };
 }
 
+async function ensureWatermarkFonts() {
+  if (!document.fonts) return;
+  await Promise.allSettled([
+    document.fonts.load('40px "Stanger"'),
+    document.fonts.load('16px "Nyght Serif"')
+  ]);
+}
+
 function updateOutputs() {
   els.intensityValue.textContent = `${els.lutIntensity.value}%`;
   els.exposureValue.textContent = els.exposure.value;
@@ -217,79 +225,229 @@ function fitSize(width, height, maxEdge) {
   };
 }
 
-function drawWatermark(ctx, width, height, imageName, settings) {
+function drawWatermark(ctx, width, height, asset, settings) {
   if (!settings.watermarkEnabled) return;
 
-  const pad = Math.max(18, Math.round(width * 0.025));
-  const fontSize = Math.round(settings.fontSize * Math.max(0.65, Math.min(1.4, width / 2400)));
-  const title = settings.watermarkTitle;
-  const details = [
-    settings.watermarkSubtitle,
-    state.lut ? state.lut.title : "",
-    imageName
-  ].filter(Boolean).join(" · ");
+  if (settings.watermarkStyle === "frame") {
+    drawLumixFrame(ctx, width, height, asset, settings);
+  } else {
+    drawMetadataWatermark(ctx, width, height, asset, settings);
+  }
+}
+
+function cleanWatermarkLine(value) {
+  const line = String(value || "").trim();
+  return line ? line : null;
+}
+
+function cleanCameraText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/Panasonic/gi, "LUMIX")
+    .replace(/\bDC-/gi, "")
+    .trim();
+}
+
+function metadataContent(asset) {
+  const metadata = asset.metadata || {};
+  const lutName = state.lut ? state.lut.title.replace(/\.[^.]+$/, "") : null;
+  return {
+    camera: cleanWatermarkLine(metadata.cameraModel),
+    lens: cleanWatermarkLine(metadata.lensModel),
+    focalLength: cleanWatermarkLine(metadata.focalLength),
+    aperture: cleanWatermarkLine(metadata.aperture),
+    shutterSpeed: cleanWatermarkLine(metadata.shutterSpeed),
+    iso: cleanWatermarkLine(metadata.iso),
+    whiteBalance: cleanWatermarkLine(metadata.whiteBalance),
+    lutName: cleanWatermarkLine(lutName)
+  };
+}
+
+function drawMetadataWatermark(ctx, width, height, asset, settings) {
+  const content = metadataContent(asset);
+  const primaryLine = content.camera;
+  const leftDetailLine = content.lens;
+  const exposureLine = [
+    content.focalLength,
+    content.aperture,
+    content.shutterSpeed,
+    content.iso,
+    content.whiteBalance
+  ].filter(Boolean).join("  ");
+  const rightLines = [exposureLine, content.lutName].filter(Boolean);
+  if (!primaryLine && !leftDetailLine && !rightLines.length) return;
+
+  const shortEdge = Math.min(width, height);
+  const fontScale = clamp(settings.fontSize / 30, 0.45, 1.8);
+  const padding = Math.max(18, shortEdge * 0.028);
+  const primarySize = Math.max(14, shortEdge * 0.05 * fontScale);
+  const detailSize = Math.max(8, shortEdge * 0.022 * fontScale);
+  const detailBoldSize = Math.max(9, shortEdge * 0.024 * fontScale);
+  const primaryMaxWidth = width * 0.48;
+  const detailMaxWidth = width * 0.5;
+  const leftDetailBaselineY = height - padding;
+  const primaryBaselineY = leftDetailLine ? height - (padding + detailSize * 1.18) : height - padding;
+  const detailLineHeight = detailSize * 1.22;
+  const detailBlockHeight = rightLines.reduce((total, _line, index) => {
+    const isLast = index === rightLines.length - 1 && Boolean(content.lutName);
+    return total + (isLast ? detailBoldSize : detailSize) * 1.22;
+  }, 0);
+  let detailY = height - (padding + Math.max(0, (primarySize - detailBlockHeight) * 0.45));
 
   ctx.save();
-  ctx.globalAlpha = settings.watermarkOpacity;
+  ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+  ctx.shadowBlur = Math.max(2.5, shortEdge * 0.004);
+  ctx.shadowOffsetY = 1;
 
-  if (settings.watermarkStyle === "frame") {
-    const frame = Math.max(42, Math.round(width * 0.045));
-    const source = ctx.getImageData(0, 0, width, height);
-    ctx.canvas.width = width + frame * 2;
-    ctx.canvas.height = height + frame * 2;
-    ctx.fillStyle = settings.frameColor;
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.putImageData(source, frame, frame);
-    ctx.fillStyle = settings.textColor;
-    ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.max(14, fontSize)}px Inter, system-ui, sans-serif`;
-    ctx.fillText(title, frame, frame / 2);
-    ctx.font = `400 ${Math.max(11, Math.round(fontSize * 0.48))}px Inter, system-ui, sans-serif`;
-    const detailText = trimToWidth(ctx, details, ctx.canvas.width - frame * 2);
-    ctx.fillText(detailText, frame, ctx.canvas.height - frame / 2);
-    ctx.restore();
-    return;
+  if (primaryLine) {
+    drawTruncatedCanvasText(ctx, primaryLine, padding, primaryBaselineY, primaryMaxWidth, {
+      font: `${primarySize}px ${settings.watermarkFont || "Google Sans"}, system-ui, sans-serif`,
+      color: "rgba(255, 255, 255, 0.98)",
+      align: "left",
+      baseline: "bottom"
+    });
   }
 
-  ctx.textBaseline = "bottom";
-  ctx.font = `800 ${fontSize}px Inter, system-ui, sans-serif`;
-  const titleWidth = ctx.measureText(title).width;
-  ctx.font = `500 ${Math.max(11, Math.round(fontSize * 0.46))}px Inter, system-ui, sans-serif`;
-  const detailText = trimToWidth(ctx, details, Math.max(120, width * 0.56));
-  const detailWidth = ctx.measureText(detailText).width;
-  const boxWidth = Math.max(titleWidth, detailWidth) + pad * 1.1;
-  const boxHeight = fontSize * 1.85;
-  const x = width - boxWidth - pad;
-  const y = height - boxHeight - pad;
+  if (leftDetailLine) {
+    drawTruncatedCanvasText(ctx, leftDetailLine, padding, leftDetailBaselineY, primaryMaxWidth, {
+      font: `${detailSize}px ${settings.watermarkFont || "Google Sans"}, system-ui, sans-serif`,
+      color: "rgba(255, 255, 255, 0.9)",
+      align: "left",
+      baseline: "bottom"
+    });
+  }
 
-  ctx.fillStyle = settings.frameColor;
-  roundedRect(ctx, x, y, boxWidth, boxHeight, 8);
-  ctx.fill();
-  ctx.fillStyle = settings.textColor;
-  ctx.font = `800 ${fontSize}px Inter, system-ui, sans-serif`;
-  ctx.fillText(title, x + pad * 0.55, y + fontSize * 1.06);
-  ctx.font = `500 ${Math.max(11, Math.round(fontSize * 0.46))}px Inter, system-ui, sans-serif`;
-  ctx.fillText(detailText, x + pad * 0.55, y + boxHeight - pad * 0.42);
+  rightLines.forEach((line, index) => {
+    const isLast = index === rightLines.length - 1 && Boolean(content.lutName);
+    const fontSize = isLast ? detailBoldSize : detailSize;
+    drawTruncatedCanvasText(ctx, line, width - padding - detailMaxWidth, detailY, detailMaxWidth, {
+      font: `${isLast ? "700 " : ""}${fontSize}px ${settings.watermarkFont || "Google Sans"}, system-ui, sans-serif`,
+      color: `rgba(255, 255, 255, ${isLast ? 0.96 : 0.9})`,
+      align: "right",
+      baseline: "alphabetic"
+    });
+    detailY += isLast ? detailBoldSize * 1.2 : detailLineHeight;
+  });
   ctx.restore();
 }
 
-function roundedRect(ctx, x, y, width, height, radius) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + width, y, x + width, y + height, radius);
-  ctx.arcTo(x + width, y + height, x, y + height, radius);
-  ctx.arcTo(x, y + height, x, y, radius);
-  ctx.arcTo(x, y, x + width, y, radius);
-  ctx.closePath();
+function lumixFrameLayout(imageWidth, imageHeight) {
+  const designWidth = 360;
+  const designHeight = 640;
+  const aspect = designWidth / designHeight;
+  const photoWidthRatio = 340 / 360;
+  const photoHeightRatio = 471 / 640;
+  const frameWidthForPhotoWidth = imageWidth / photoWidthRatio;
+  const frameWidthForPhotoHeight = aspect * (imageHeight / photoHeightRatio);
+  const frameWidth = Math.ceil(Math.max(designWidth, frameWidthForPhotoWidth, frameWidthForPhotoHeight));
+  const frameHeight = Math.round(frameWidth / aspect);
+  const unit = frameWidth / designWidth;
+  const verticalUnit = frameHeight / designHeight;
+  const photoTop = (40 + 52 + 10) * verticalUnit;
+  const photoSize = { width: 340 * unit, height: 471 * verticalUnit };
+  const photoOrigin = { x: 10 * unit, y: photoTop };
+  const fitScale = Math.min(photoSize.width / imageWidth, photoSize.height / imageHeight);
+  const fittedSize = { width: imageWidth * fitScale, height: imageHeight * fitScale };
+  const fittedTopLeft = {
+    x: photoOrigin.x + (photoSize.width - fittedSize.width) / 2,
+    y: photoOrigin.y + (photoSize.height - fittedSize.height) / 2
+  };
+
+  return {
+    frameWidth,
+    frameHeight,
+    imageRect: {
+      x: Math.round(fittedTopLeft.x),
+      y: Math.round(fittedTopLeft.y),
+      width: Math.round(fittedSize.width),
+      height: Math.round(fittedSize.height)
+    },
+    horizontalPadding: 10 * unit,
+    titleFontSize: 40 * unit,
+    footerFontSize: 8 * unit,
+    lutFontSize: 16 * unit,
+    titleBaselineY: (40 + 40) * verticalUnit,
+    lensBaselineY: frameHeight - (52 * verticalUnit),
+    exposureBaselineY: frameHeight - (42 * verticalUnit),
+    lutBaselineY: frameHeight - (42 * verticalUnit)
+  };
+}
+
+function drawLumixFrame(ctx, width, height, asset, settings) {
+  const source = ctx.getImageData(0, 0, width, height);
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  sourceCanvas.getContext("2d").putImageData(source, 0, 0);
+  const layout = lumixFrameLayout(width, height);
+  const content = metadataContent(asset);
+  const exposure = [
+    content.aperture,
+    content.shutterSpeed,
+    content.iso,
+    content.whiteBalance
+  ].filter(Boolean).join("  ");
+  const frameContent = {
+    camera: content.camera || "Camera",
+    lens: content.lens || "LENS",
+    exposure: exposure || "F2.4  1/60s  ISO400 WB",
+    lutName: content.lutName || "LUT NAME"
+  };
+
+  ctx.canvas.width = layout.frameWidth;
+  ctx.canvas.height = layout.frameHeight;
+  ctx.fillStyle = settings.frameColor || "#ffffff";
+  ctx.fillRect(0, 0, layout.frameWidth, layout.frameHeight);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(sourceCanvas, layout.imageRect.x, layout.imageRect.y, layout.imageRect.width, layout.imageRect.height);
+  ctx.fillStyle = settings.textColor || "#000000";
+  ctx.shadowColor = "transparent";
+
+  drawTruncatedCanvasText(ctx, frameContent.camera, layout.horizontalPadding, layout.titleBaselineY, layout.frameWidth - layout.horizontalPadding * 2, {
+    font: `${layout.titleFontSize}px "Stanger", "Times New Roman", serif`,
+    color: settings.textColor || "#000000",
+    align: "left",
+    baseline: "alphabetic"
+  });
+  drawTruncatedCanvasText(ctx, frameContent.lens, layout.horizontalPadding, layout.lensBaselineY, layout.frameWidth * 0.45, {
+    font: `italic ${layout.footerFontSize}px "Nyght Serif", Georgia, serif`,
+    color: settings.textColor || "#000000",
+    align: "left",
+    baseline: "alphabetic"
+  });
+  drawTruncatedCanvasText(ctx, frameContent.exposure, layout.horizontalPadding, layout.exposureBaselineY, layout.frameWidth * 0.6, {
+    font: `italic ${layout.footerFontSize}px "Nyght Serif", Georgia, serif`,
+    color: settings.textColor || "#000000",
+    align: "left",
+    baseline: "alphabetic"
+  });
+  drawTruncatedCanvasText(ctx, frameContent.lutName, layout.frameWidth - layout.horizontalPadding - layout.frameWidth * 0.45, layout.lutBaselineY, layout.frameWidth * 0.45, {
+    font: `italic ${layout.lutFontSize}px "Nyght Serif", Georgia, serif`,
+    color: settings.textColor || "#000000",
+    align: "right",
+    baseline: "alphabetic"
+  });
+}
+
+function drawTruncatedCanvasText(ctx, text, x, y, maxWidth, options) {
+  ctx.save();
+  ctx.font = options.font;
+  ctx.fillStyle = options.color;
+  ctx.textAlign = options.align || "left";
+  ctx.textBaseline = options.baseline || "alphabetic";
+  const displayText = trimToWidth(ctx, text, maxWidth);
+  ctx.fillText(displayText, options.align === "right" ? x + maxWidth : x, y);
+  ctx.restore();
 }
 
 function trimToWidth(ctx, text, maxWidth) {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let trimmed = text;
-  while (trimmed.length > 4 && ctx.measureText(`${trimmed}...`).width > maxWidth) {
+  while (trimmed.length > 4 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
     trimmed = trimmed.slice(0, -2);
   }
-  return `${trimmed}...`;
+  return `${trimmed}…`;
 }
 
 async function renderImage(asset, targetCanvas, maxEdge, includeWatermark) {
@@ -305,7 +463,8 @@ async function renderImage(asset, targetCanvas, maxEdge, includeWatermark) {
   const imageData = ctx.getImageData(0, 0, size.width, size.height);
   applyAdjustments(imageData, settings);
   ctx.putImageData(imageData, 0, 0);
-  drawWatermark(ctx, size.width, size.height, asset.file.name, settings);
+  await ensureWatermarkFonts();
+  drawWatermark(ctx, size.width, size.height, asset, settings);
   return targetCanvas;
 }
 
@@ -332,10 +491,14 @@ async function handleImages(files) {
   setLog("正在读取图片...");
   const loaded = [];
   for (const file of imageFiles) {
-    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const [bitmap, metadata] = await Promise.all([
+      createImageBitmap(file, { imageOrientation: "from-image" }),
+      readImageMetadata(file)
+    ]);
     loaded.push({
       file,
       bitmap,
+      metadata,
       url: URL.createObjectURL(file)
     });
   }
@@ -344,6 +507,195 @@ async function handleImages(files) {
   els.imageMeta.textContent = `${state.images.length} 张图片`;
   buildQueue();
   await renderPreview();
+}
+
+async function readImageMetadata(file) {
+  if (!/jpe?g$/i.test(file.name) && file.type !== "image/jpeg") return {};
+  try {
+    const buffer = await file.slice(0, Math.min(file.size, 1024 * 1024)).arrayBuffer();
+    return parseExifMetadata(buffer);
+  } catch {
+    return {};
+  }
+}
+
+function parseExifMetadata(buffer) {
+  const view = new DataView(buffer);
+  if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return {};
+  let offset = 2;
+
+  while (offset + 4 < view.byteLength) {
+    if (view.getUint8(offset) !== 0xff) break;
+    const marker = view.getUint8(offset + 1);
+    const segmentLength = view.getUint16(offset + 2, false);
+    if (marker === 0xe1 && offset + 4 + segmentLength <= view.byteLength) {
+      const exifOffset = offset + 4;
+      if (readAscii(view, exifOffset, 6) === "Exif\0\0") {
+        return parseTiffMetadata(view, exifOffset + 6);
+      }
+    }
+    offset += 2 + segmentLength;
+  }
+  return {};
+}
+
+function parseTiffMetadata(view, tiffStart) {
+  const endian = readAscii(view, tiffStart, 2);
+  const littleEndian = endian === "II";
+  if (!littleEndian && endian !== "MM") return {};
+  const firstIfdOffset = view.getUint32(tiffStart + 4, littleEndian);
+  const ifd0 = readIfd(view, tiffStart, firstIfdOffset, littleEndian);
+  const exifOffset = ifd0[0x8769] ? Number(ifd0[0x8769].value) : 0;
+  const exif = exifOffset ? readIfd(view, tiffStart, exifOffset, littleEndian) : {};
+
+  const make = cleanCameraText(ifdValue(ifd0[0x010f]));
+  const model = cleanCameraText(ifdValue(ifd0[0x0110]));
+  const lensMake = cleanCameraText(ifdValue(exif[0xa433]));
+  const lensModel = cleanCameraText(ifdValue(exif[0xa434]));
+  const cameraModel = formatCameraModel(make, model);
+  const lens = formatCameraModel(lensMake, lensModel);
+  const focalEquivalent = numberValue(ifdValue(exif[0xa405]));
+  const focalActual = numberValue(ifdValue(exif[0x920a]));
+  const aperture = numberValue(ifdValue(exif[0x829d]));
+  const shutter = numberValue(ifdValue(exif[0x829a]));
+  const iso = numberValue(firstArrayValue(ifdValue(exif[0x8827])));
+  const lightSource = numberValue(ifdValue(exif[0x9208]));
+  const whiteBalance = numberValue(ifdValue(exif[0xa403]));
+  const hasLightSource = Object.prototype.hasOwnProperty.call(exif, 0x9208);
+  const hasWhiteBalance = Object.prototype.hasOwnProperty.call(exif, 0xa403);
+
+  return {
+    cameraModel: cameraModel || null,
+    lensModel: lens || null,
+    focalLength: focalEquivalent > 0 ? formatFocalLength(focalEquivalent) : formatFocalLength(focalActual),
+    aperture: formatFNumber(aperture),
+    shutterSpeed: formatExposureTime(shutter),
+    iso: iso > 0 ? `ISO ${Math.round(iso)}` : null,
+    whiteBalance: formatWhiteBalance(hasLightSource ? lightSource : null, hasWhiteBalance ? whiteBalance : null)
+  };
+}
+
+function readIfd(view, tiffStart, ifdOffset, littleEndian) {
+  const absoluteOffset = tiffStart + ifdOffset;
+  if (absoluteOffset < 0 || absoluteOffset + 2 > view.byteLength) return {};
+  const count = view.getUint16(absoluteOffset, littleEndian);
+  const tags = {};
+  for (let index = 0; index < count; index += 1) {
+    const entry = absoluteOffset + 2 + index * 12;
+    if (entry + 12 > view.byteLength) break;
+    const tag = view.getUint16(entry, littleEndian);
+    const type = view.getUint16(entry + 2, littleEndian);
+    const valueCount = view.getUint32(entry + 4, littleEndian);
+    tags[tag] = {
+      type,
+      count: valueCount,
+      value: readIfdValue(view, tiffStart, entry, type, valueCount, littleEndian)
+    };
+  }
+  return tags;
+}
+
+function readIfdValue(view, tiffStart, entry, type, count, littleEndian) {
+  const typeSize = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 }[type] || 1;
+  const byteLength = typeSize * count;
+  const inlineOffset = entry + 8;
+  const valueOffset = byteLength <= 4 ? inlineOffset : tiffStart + view.getUint32(inlineOffset, littleEndian);
+  if (valueOffset < 0 || valueOffset + byteLength > view.byteLength) return null;
+
+  if (type === 2) return readAscii(view, valueOffset, count).replace(/\0+$/, "");
+  const values = [];
+  for (let i = 0; i < count; i += 1) {
+    const offset = valueOffset + i * typeSize;
+    if (type === 3) values.push(view.getUint16(offset, littleEndian));
+    else if (type === 4) values.push(view.getUint32(offset, littleEndian));
+    else if (type === 5) values.push(view.getUint32(offset, littleEndian) / Math.max(1, view.getUint32(offset + 4, littleEndian)));
+    else if (type === 9) values.push(view.getInt32(offset, littleEndian));
+    else if (type === 10) values.push(view.getInt32(offset, littleEndian) / Math.max(1, view.getInt32(offset + 4, littleEndian)));
+    else values.push(view.getUint8(offset));
+  }
+  return count === 1 ? values[0] : values;
+}
+
+function ifdValue(entry) {
+  return entry ? entry.value : null;
+}
+
+function firstArrayValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function numberValue(value) {
+  const first = firstArrayValue(value);
+  const number = Number(first);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function readAscii(view, offset, length) {
+  let text = "";
+  for (let i = 0; i < length && offset + i < view.byteLength; i += 1) {
+    text += String.fromCharCode(view.getUint8(offset + i));
+  }
+  return text;
+}
+
+function formatCameraModel(make, model) {
+  if (model) {
+    return make && !model.toLowerCase().startsWith(make.toLowerCase()) ? cleanCameraText(`${make} ${model}`) : cleanCameraText(model);
+  }
+  return make || null;
+}
+
+function compactNumber(value, maximumFractionDigits) {
+  if (!Number.isFinite(value)) return "";
+  return new Intl.NumberFormat("en-US", {
+    useGrouping: false,
+    minimumFractionDigits: 0,
+    maximumFractionDigits
+  }).format(value);
+}
+
+function formatFNumber(value) {
+  return value > 0 ? `f/${compactNumber(value, value >= 10 ? 0 : 1)}` : null;
+}
+
+function formatExposureTime(value) {
+  if (!(value > 0)) return null;
+  if (value < 1) return `1/${Math.round(1 / value)}s`;
+  return `${compactNumber(value, value >= 10 ? 0 : 1)}s`;
+}
+
+function formatFocalLength(value) {
+  return value > 0 ? `${compactNumber(value, value >= 100 ? 0 : 1)}MM` : null;
+}
+
+function formatWhiteBalance(lightSource, whiteBalance) {
+  const lightSources = {
+    1: "DAYLIGHT",
+    2: "FLUORESCENT",
+    3: "TUNGSTEN",
+    4: "FLASH",
+    9: "FINE",
+    10: "CLOUDY",
+    11: "SHADE",
+    12: "DAYLIGHT FLUORESCENT",
+    13: "DAY WHITE FLUORESCENT",
+    14: "COOL WHITE FLUORESCENT",
+    15: "WHITE FLUORESCENT",
+    16: "WARM WHITE FLUORESCENT",
+    17: "STANDARD A",
+    18: "STANDARD B",
+    19: "STANDARD C",
+    20: "D55",
+    21: "D65",
+    22: "D75",
+    23: "D50",
+    24: "ISO STUDIO TUNGSTEN",
+    255: "OTHER"
+  };
+  if (lightSource !== null && lightSources[Math.round(lightSource)]) return `WB ${lightSources[Math.round(lightSource)]}`;
+  if (whiteBalance !== null && Math.round(whiteBalance) === 0) return "WB AUTO";
+  if (whiteBalance !== null && Math.round(whiteBalance) === 1) return "WB MANUAL";
+  return null;
 }
 
 function readTextFile(file) {
