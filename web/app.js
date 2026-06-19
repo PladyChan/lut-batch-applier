@@ -39,6 +39,7 @@ const els = {
   watermarkSubtitle: $("watermarkSubtitle"),
   fontSize: $("fontSize"),
   watermarkOpacity: $("watermarkOpacity"),
+  photoThemeEnabled: $("photoThemeEnabled"),
   textColor: $("textColor"),
   frameColor: $("frameColor"),
   maxEdge: $("maxEdge"),
@@ -78,6 +79,7 @@ function readSettings() {
     watermarkStyle: state.watermarkStyle,
     fontSize: Number(els.fontSize.value),
     watermarkOpacity: Number(els.watermarkOpacity.value) / 100,
+    photoThemeEnabled: els.photoThemeEnabled.checked,
     textColor: els.textColor.value,
     frameColor: els.frameColor.value,
     maxEdge: Number(els.maxEdge.value),
@@ -416,41 +418,136 @@ function drawLumixFrame(ctx, width, height, asset, settings) {
     exposure: exposure || "F2.4  1/60s  ISO400 WB",
     lutName: cleanWatermarkLine(settings.watermarkSubtitle) || content.lutName || "Y2000-LX Plady"
   };
+  const colors = settings.photoThemeEnabled
+    ? photoDominantFrameTheme(asset) || { background: settings.frameColor || "#ffffff", text: settings.textColor || "#000000" }
+    : { background: settings.frameColor || "#ffffff", text: settings.textColor || "#000000" };
 
   ctx.canvas.width = layout.frameWidth;
   ctx.canvas.height = layout.frameHeight;
-  ctx.fillStyle = settings.frameColor || "#ffffff";
+  ctx.fillStyle = colors.background;
   ctx.fillRect(0, 0, layout.frameWidth, layout.frameHeight);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(sourceCanvas, layout.imageRect.x, layout.imageRect.y, layout.imageRect.width, layout.imageRect.height);
-  ctx.fillStyle = settings.textColor || "#000000";
+  ctx.fillStyle = colors.text;
   ctx.shadowColor = "transparent";
 
   drawTruncatedCanvasText(ctx, frameContent.camera, layout.horizontalPadding, layout.titleBaselineY, layout.frameWidth - layout.horizontalPadding * 2, {
     font: `${layout.titleFontSize}px "Stanger", "Times New Roman", serif`,
-    color: settings.textColor || "#000000",
+    color: colors.text,
     align: "left",
     baseline: "alphabetic"
   });
   drawTruncatedCanvasText(ctx, frameContent.lens, layout.horizontalPadding, layout.lensBaselineY, layout.frameWidth * 0.45, {
     font: `italic ${layout.footerFontSize}px "Nyght Serif", Georgia, serif`,
-    color: settings.textColor || "#000000",
+    color: colors.text,
     align: "left",
     baseline: "alphabetic"
   });
   drawTruncatedCanvasText(ctx, frameContent.exposure, layout.horizontalPadding, layout.exposureBaselineY, layout.frameWidth * 0.6, {
     font: `italic ${layout.footerFontSize}px "Nyght Serif", Georgia, serif`,
-    color: settings.textColor || "#000000",
+    color: colors.text,
     align: "left",
     baseline: "alphabetic"
   });
   drawTruncatedCanvasText(ctx, frameContent.lutName, layout.frameWidth - layout.horizontalPadding - layout.frameWidth * 0.45, layout.lutBaselineY, layout.frameWidth * 0.45, {
     font: `italic ${layout.lutFontSize}px "Nyght Serif", Georgia, serif`,
-    color: settings.textColor || "#000000",
+    color: colors.text,
     align: "right",
     baseline: "alphabetic"
   });
+}
+
+function photoDominantFrameTheme(asset) {
+  try {
+    const size = 96;
+    const sampleCanvas = document.createElement("canvas");
+    const sourceWidth = asset.bitmap.naturalWidth || asset.bitmap.width || 1;
+    const sourceHeight = asset.bitmap.naturalHeight || asset.bitmap.height || 1;
+    const scale = Math.min(1, size / Math.max(sourceWidth, sourceHeight));
+    sampleCanvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    sampleCanvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+    sampleCtx.imageSmoothingEnabled = true;
+    sampleCtx.imageSmoothingQuality = "low";
+    sampleCtx.drawImage(asset.bitmap, 0, 0, sampleCanvas.width, sampleCanvas.height);
+    const pixels = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data;
+    let redTotal = 0;
+    let greenTotal = 0;
+    let blueTotal = 0;
+    let weightTotal = 0;
+
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index] / 255;
+      const green = pixels[index + 1] / 255;
+      const blue = pixels[index + 2] / 255;
+      const maxChannel = Math.max(red, green, blue);
+      const minChannel = Math.min(red, green, blue);
+      const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
+      const brightness = maxChannel;
+      const weight = Math.max(0.08, saturation) * (0.35 + brightness * 0.65);
+      redTotal += red * weight;
+      greenTotal += green * weight;
+      blueTotal += blue * weight;
+      weightTotal += weight;
+    }
+
+    if (weightTotal <= 0) return null;
+    const average = {
+      r: redTotal / weightTotal,
+      g: greenTotal / weightTotal,
+      b: blueTotal / weightTotal
+    };
+    const hsv = rgbToHsv(average.r, average.g, average.b);
+    const backgroundSaturation = Math.min(0.30, Math.max(0.10, hsv.s * 0.34));
+    const textSaturation = Math.min(0.62, Math.max(0.18, hsv.s * 0.72));
+    return {
+      background: rgbToHex(hsvToRgb(hsv.h, backgroundSaturation, 0.94)),
+      text: rgbToHex(hsvToRgb(hsv.h, textSaturation, 0.13))
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function rgbToHsv(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h /= 6;
+    if (h < 0) h += 1;
+  }
+  return {
+    h,
+    s: max === 0 ? 0 : delta / max,
+    v: max
+  };
+}
+
+function hsvToRgb(h, s, v) {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  switch (i % 6) {
+    case 0: return { r: v, g: t, b: p };
+    case 1: return { r: q, g: v, b: p };
+    case 2: return { r: p, g: v, b: t };
+    case 3: return { r: p, g: q, b: v };
+    case 4: return { r: t, g: p, b: v };
+    default: return { r: v, g: p, b: q };
+  }
+}
+
+function rgbToHex(color) {
+  const channel = (value) => Math.round(clamp(value, 0, 1) * 255).toString(16).padStart(2, "0");
+  return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
 }
 
 function drawTruncatedCanvasText(ctx, text, x, y, maxWidth, options) {
@@ -918,7 +1015,7 @@ function setup() {
   [
     els.lutIntensity, els.exposure, els.contrast, els.saturation,
     els.watermarkEnabled, els.watermarkTitle, els.watermarkSubtitle,
-    els.fontSize, els.watermarkOpacity, els.textColor, els.frameColor,
+    els.fontSize, els.watermarkOpacity, els.photoThemeEnabled, els.textColor, els.frameColor,
     els.maxEdge, els.jpegQuality
   ].forEach((input) => {
     input.addEventListener("input", renderPreview);
