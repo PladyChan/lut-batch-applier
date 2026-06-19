@@ -346,10 +346,20 @@ async function handleImages(files) {
   await renderPreview();
 }
 
+function readTextFile(file) {
+  if (file.text) return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("文件读取失败"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
 async function handleLut(file) {
   if (!file) return;
   try {
-    const content = await file.text();
+    const content = await readTextFile(file);
     state.lut = parseCube(content);
     els.lutMeta.textContent = `${state.lut.title} · ${state.lut.size}³`;
     setLog("LUT 已载入");
