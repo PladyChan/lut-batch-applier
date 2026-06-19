@@ -29,11 +29,7 @@ const els = {
   exportButton: $("exportButton"),
   prevImage: $("prevImage"),
   nextImage: $("nextImage"),
-  resetAdjustments: $("resetAdjustments"),
   lutIntensity: $("lutIntensity"),
-  exposure: $("exposure"),
-  contrast: $("contrast"),
-  saturation: $("saturation"),
   watermarkEnabled: $("watermarkEnabled"),
   watermarkTitle: $("watermarkTitle"),
   watermarkSubtitle: $("watermarkSubtitle"),
@@ -45,9 +41,6 @@ const els = {
   maxEdge: $("maxEdge"),
   jpegQuality: $("jpegQuality"),
   intensityValue: $("intensityValue"),
-  exposureValue: $("exposureValue"),
-  contrastValue: $("contrastValue"),
-  saturationValue: $("saturationValue"),
   fontSizeValue: $("fontSizeValue"),
   opacityValue: $("opacityValue"),
   maxEdgeValue: $("maxEdgeValue"),
@@ -70,9 +63,6 @@ window.addEventListener("unhandledrejection", (event) => {
 function readSettings() {
   return {
     lutIntensity: Number(els.lutIntensity.value) / 100,
-    exposure: Number(els.exposure.value),
-    contrast: Number(els.contrast.value),
-    saturation: Number(els.saturation.value),
     watermarkEnabled: els.watermarkEnabled.checked,
     watermarkTitle: els.watermarkTitle.value.trim() || "PLADY",
     watermarkSubtitle: els.watermarkSubtitle.value.trim(),
@@ -104,9 +94,6 @@ async function ensureWatermarkFonts() {
 
 function updateOutputs() {
   els.intensityValue.textContent = `${els.lutIntensity.value}%`;
-  els.exposureValue.textContent = els.exposure.value;
-  els.contrastValue.textContent = els.contrast.value;
-  els.saturationValue.textContent = els.saturation.value;
   els.fontSizeValue.textContent = els.fontSize.value;
   els.opacityValue.textContent = `${els.watermarkOpacity.value}%`;
   els.maxEdgeValue.textContent = `${els.maxEdge.value}px`;
@@ -201,11 +188,8 @@ function sampleLut(lut, r, g, b) {
   return out;
 }
 
-function applyAdjustments(imageData, settings) {
+function applyLut(imageData, settings) {
   const pixels = imageData.data;
-  const exposureMul = Math.pow(2, settings.exposure / 100);
-  const contrast = 1 + settings.contrast / 120;
-  const saturation = Math.max(0, 1 + settings.saturation / 100);
 
   for (let i = 0; i < pixels.length; i += 4) {
     let r = pixels[i] / 255;
@@ -218,19 +202,6 @@ function applyAdjustments(imageData, settings) {
       g = lerp(g, lutColor[1], settings.lutIntensity);
       b = lerp(b, lutColor[2], settings.lutIntensity);
     }
-
-    r *= exposureMul;
-    g *= exposureMul;
-    b *= exposureMul;
-
-    r = (r - 0.5) * contrast + 0.5;
-    g = (g - 0.5) * contrast + 0.5;
-    b = (b - 0.5) * contrast + 0.5;
-
-    const luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-    r = lerp(luma, r, saturation);
-    g = lerp(luma, g, saturation);
-    b = lerp(luma, b, saturation);
 
     pixels[i] = Math.round(clamp(r, 0, 1) * 255);
     pixels[i + 1] = Math.round(clamp(g, 0, 1) * 255);
@@ -581,7 +552,7 @@ async function renderImage(asset, targetCanvas, maxEdge, includeWatermark) {
   ctx.clearRect(0, 0, size.width, size.height);
   ctx.drawImage(asset.bitmap, 0, 0, size.width, size.height);
   const imageData = ctx.getImageData(0, 0, size.width, size.height);
-  applyAdjustments(imageData, settings);
+  applyLut(imageData, settings);
   ctx.putImageData(imageData, 0, 0);
   await ensureWatermarkFonts();
   drawWatermark(ctx, size.width, size.height, asset, settings);
@@ -1013,20 +984,11 @@ function setup() {
   });
 
   [
-    els.lutIntensity, els.exposure, els.contrast, els.saturation,
-    els.watermarkEnabled, els.watermarkTitle, els.watermarkSubtitle,
+    els.lutIntensity, els.watermarkEnabled, els.watermarkTitle, els.watermarkSubtitle,
     els.fontSize, els.watermarkOpacity, els.photoThemeEnabled, els.textColor, els.frameColor,
     els.maxEdge, els.jpegQuality
   ].forEach((input) => {
     input.addEventListener("input", renderPreview);
-  });
-
-  els.resetAdjustments.addEventListener("click", async () => {
-    els.lutIntensity.value = 100;
-    els.exposure.value = 0;
-    els.contrast.value = 0;
-    els.saturation.value = 0;
-    await renderPreview();
   });
 
   els.prevImage.addEventListener("click", async () => {

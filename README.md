@@ -14,7 +14,7 @@ web/index.html
 
 - 批量导入 JPG / PNG / WebP 图片
 - 导入 `.cube` LUT 并在浏览器本地套色
-- 调整 LUT 强度、曝光、对比、饱和
+- 调整 LUT 强度
 - 添加信息水印或画框水印
 - 批量导出 JPEG ZIP
 
