@@ -32,6 +32,14 @@ python3 -m http.server 8000 --directory web
 http://localhost:8000
 ```
 
+发布到 GitHub Pages：
+
+```bash
+git push origin main
+```
+
+仓库包含 GitHub Actions 配置，会自动把 `web/` 目录发布为 Pages 站点。
+
 ## 原生端
 
 - `native-macos/`：macOS 版本
