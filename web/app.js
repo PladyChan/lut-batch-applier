@@ -5,8 +5,11 @@ const state = {
   currentIndex: 0,
   lut: null,
   watermarkStyle: "metadata",
-  renderToken: 0
+  renderToken: 0,
+  fontLoadPromise: null
 };
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 const $ = (id) => document.getElementById(id);
 
@@ -54,6 +57,15 @@ function setLog(message) {
   els.log.textContent = message;
 }
 
+window.addEventListener("error", (event) => {
+  if (els.log) els.log.textContent = `页面错误：${event.message}`;
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason && event.reason.message ? event.reason.message : String(event.reason || "未知错误");
+  if (els.log) els.log.textContent = `处理失败：${reason}`;
+});
+
 function readSettings() {
   return {
     lutIntensity: Number(els.lutIntensity.value) / 100,
@@ -74,11 +86,18 @@ function readSettings() {
 }
 
 async function ensureWatermarkFonts() {
-  if (!document.fonts) return;
-  await Promise.allSettled([
-    document.fonts.load('40px "Stanger"'),
-    document.fonts.load('16px "Nyght Serif"')
-  ]);
+  if (!("FontFace" in window) || !document.fonts) return;
+  if (!state.fontLoadPromise) {
+    state.fontLoadPromise = Promise.all([
+      new FontFace("Stanger", 'url("./assets/fonts/Stanger.otf")').load(),
+      new FontFace("Nyght Serif", 'url("./assets/fonts/NyghtSerif-RegularItalic.otf")', { style: "italic" }).load()
+    ]).then((fonts) => {
+      fonts.forEach((font) => document.fonts.add(font));
+    }).catch((error) => {
+      console.warn("Watermark font loading failed", error);
+    });
+  }
+  await state.fontLoadPromise;
 }
 
 function updateOutputs() {
@@ -223,6 +242,10 @@ function fitSize(width, height, maxEdge) {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale))
   };
+}
+
+function safeRenderEdge(maxEdge) {
+  return isIOS ? Math.min(maxEdge, 1800) : maxEdge;
 }
 
 function drawWatermark(ctx, width, height, asset, settings) {
@@ -481,7 +504,7 @@ async function renderPreview() {
   els.nextImage.disabled = state.images.length < 2;
 
   if (!asset) return;
-  await renderImage(asset, els.previewCanvas, 1800, true);
+  await renderImage(asset, els.previewCanvas, isIOS ? 1100 : 1800, true);
   if (token === state.renderToken) setLog("预览已更新");
 }
 
@@ -492,7 +515,7 @@ async function handleImages(files) {
   const loaded = [];
   for (const file of imageFiles) {
     const [bitmap, metadata] = await Promise.all([
-      createImageBitmap(file, { imageOrientation: "from-image" }),
+      loadBitmap(file),
       readImageMetadata(file)
     ]);
     loaded.push({
@@ -509,12 +532,35 @@ async function handleImages(files) {
   await renderPreview();
 }
 
+function loadBitmap(file) {
+  if ("createImageBitmap" in window && !isIOS) {
+    return createImageBitmap(file, { imageOrientation: "from-image" });
+  }
+  return loadImageElement(file);
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("图片读取失败"));
+    };
+    image.src = url;
+  });
+}
+
 async function readImageMetadata(file) {
   if (!/jpe?g$/i.test(file.name) && file.type !== "image/jpeg") return {};
   try {
     const buffer = await file.slice(0, Math.min(file.size, 1024 * 1024)).arrayBuffer();
     return parseExifMetadata(buffer);
-  } catch {
+  } catch (_error) {
     return {};
   }
 }
@@ -823,7 +869,7 @@ async function exportZip() {
     for (let i = 0; i < state.images.length; i += 1) {
       const asset = state.images[i];
       setLog(`正在处理 ${i + 1} / ${state.images.length}: ${asset.file.name}`);
-      await renderImage(asset, canvas, Number(els.maxEdge.value), true);
+      await renderImage(asset, canvas, safeRenderEdge(Number(els.maxEdge.value)), true);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", Number(els.jpegQuality.value) / 100));
       files.push({ name: `${safeName(asset.file.name)}_plady.jpg`, blob });
     }
@@ -905,4 +951,10 @@ function setup() {
   renderPreview();
 }
 
-setup();
+requestAnimationFrame(() => {
+  try {
+    setup();
+  } catch (error) {
+    setLog(`初始化失败：${error.message}`);
+  }
+});
